@@ -9,6 +9,7 @@ const wss = new WebSocketServer({ port: 8080 });
 console.log("✅ WebSocket Server started on port 8080");
 
 const rooms: Map<string, Set<WebSocket>> = new Map();
+const userInfo: Map<WebSocket, { username: string; roomId: string }> = new Map();
 
 function broadcast(roomId: string, data: any, excludeSocket?: WebSocket) {
   const clients = rooms.get(roomId);
@@ -23,6 +24,7 @@ function broadcast(roomId: string, data: any, excludeSocket?: WebSocket) {
 
 wss.on("connection", (socket) => {
   let currentRoom: string | null = null;
+  let currentUser: string | null = null;
 
   socket.on("message", (message) => {
     let parsed: Message;
@@ -40,12 +42,14 @@ wss.on("connection", (socket) => {
         if (!rooms.has(roomId)) rooms.set(roomId, new Set());
         rooms.get(roomId)!.add(socket);
         currentRoom = roomId;
+        currentUser = username;
+        userInfo.set(socket, { username, roomId });
 
-        console.log(`👤 ${username || "User"} joined room ${roomId}`);
+        console.log(`👤 ${username} joined room ${roomId}`);
 
         broadcast(roomId, {
           type: "system",
-          payload: `${username || "A user"} joined the room.`,
+          payload: `${username} joined the room.`,
         });
 
         break;
@@ -58,7 +62,7 @@ wss.on("connection", (socket) => {
         }
 
         const { username, message } = parsed.payload;
-        console.log(`💬 ${username || "User"}: ${message}`);
+        console.log(`💬 ${username}: ${message}`);
 
         broadcast(currentRoom, {
           type: "chat",
@@ -68,21 +72,37 @@ wss.on("connection", (socket) => {
         break;
       }
 
+      case "leave": {
+        const { username, roomId } = parsed.payload;
+        if (rooms.has(roomId)) {
+          rooms.get(roomId)!.delete(socket);
+          broadcast(roomId, {
+            type: "system",
+            payload: `${username} has left the room.`,
+          });
+          userInfo.delete(socket);
+          if (rooms.get(roomId)!.size === 0) rooms.delete(roomId);
+        }
+        socket.close();
+        break;
+      }
+
       default:
         socket.send(JSON.stringify({ type: "error", payload: "Unknown message type." }));
     }
   });
 
   socket.on("close", () => {
-    if (currentRoom && rooms.has(currentRoom)) {
-      rooms.get(currentRoom)!.delete(socket);
-      broadcast(currentRoom, {
+    const info = userInfo.get(socket);
+    if (info && rooms.has(info.roomId)) {
+      rooms.get(info.roomId)!.delete(socket);
+      broadcast(info.roomId, {
         type: "system",
-        payload: "A user has left the room.",
+        payload: `${info.username} has left the room.`,
       });
-
-      if (rooms.get(currentRoom)!.size === 0) {
-        rooms.delete(currentRoom);
+      userInfo.delete(socket);
+      if (rooms.get(info.roomId)!.size === 0) {
+        rooms.delete(info.roomId);
       }
     }
   });

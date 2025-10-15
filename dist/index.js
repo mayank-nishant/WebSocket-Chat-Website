@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from "ws";
 const wss = new WebSocketServer({ port: 8080 });
 console.log("✅ WebSocket Server started on port 8080");
 const rooms = new Map();
+const userInfo = new Map();
 function broadcast(roomId, data, excludeSocket) {
     const clients = rooms.get(roomId);
     if (!clients)
@@ -14,6 +15,7 @@ function broadcast(roomId, data, excludeSocket) {
 }
 wss.on("connection", (socket) => {
     let currentRoom = null;
+    let currentUser = null;
     socket.on("message", (message) => {
         let parsed;
         try {
@@ -30,10 +32,12 @@ wss.on("connection", (socket) => {
                     rooms.set(roomId, new Set());
                 rooms.get(roomId).add(socket);
                 currentRoom = roomId;
-                console.log(`👤 ${username || "User"} joined room ${roomId}`);
+                currentUser = username;
+                userInfo.set(socket, { username, roomId });
+                console.log(`👤 ${username} joined room ${roomId}`);
                 broadcast(roomId, {
                     type: "system",
-                    payload: `${username || "A user"} joined the room.`,
+                    payload: `${username} joined the room.`,
                 });
                 break;
             }
@@ -43,11 +47,26 @@ wss.on("connection", (socket) => {
                     return;
                 }
                 const { username, message } = parsed.payload;
-                console.log(`💬 ${username || "User"}: ${message}`);
+                console.log(`💬 ${username}: ${message}`);
                 broadcast(currentRoom, {
                     type: "chat",
                     payload: { username, message },
                 });
+                break;
+            }
+            case "leave": {
+                const { username, roomId } = parsed.payload;
+                if (rooms.has(roomId)) {
+                    rooms.get(roomId).delete(socket);
+                    broadcast(roomId, {
+                        type: "system",
+                        payload: `${username} has left the room.`,
+                    });
+                    userInfo.delete(socket);
+                    if (rooms.get(roomId).size === 0)
+                        rooms.delete(roomId);
+                }
+                socket.close();
                 break;
             }
             default:
@@ -55,14 +74,16 @@ wss.on("connection", (socket) => {
         }
     });
     socket.on("close", () => {
-        if (currentRoom && rooms.has(currentRoom)) {
-            rooms.get(currentRoom).delete(socket);
-            broadcast(currentRoom, {
+        const info = userInfo.get(socket);
+        if (info && rooms.has(info.roomId)) {
+            rooms.get(info.roomId).delete(socket);
+            broadcast(info.roomId, {
                 type: "system",
-                payload: "A user has left the room.",
+                payload: `${info.username} has left the room.`,
             });
-            if (rooms.get(currentRoom).size === 0) {
-                rooms.delete(currentRoom);
+            userInfo.delete(socket);
+            if (rooms.get(info.roomId).size === 0) {
+                rooms.delete(info.roomId);
             }
         }
     });
