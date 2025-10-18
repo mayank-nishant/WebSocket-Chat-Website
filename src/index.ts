@@ -1,12 +1,16 @@
 import { WebSocketServer, WebSocket } from "ws";
+import http from "http";
 
 interface Message {
   type: "join" | "chat" | "leave" | "system";
   payload: any;
 }
 
-const wss = new WebSocketServer({ port: 8080 });
-console.log("✅ WebSocket Server started on port 8080");
+const server = http.createServer();
+const PORT = process.env.PORT || 8080;
+const wss = new WebSocketServer({ server });
+
+console.log(`✅ WebSocket Server starting on port ${PORT}...`);
 
 const rooms: Map<string, Set<WebSocket>> = new Map();
 const userInfo: Map<WebSocket, { username: string; roomId: string }> = new Map();
@@ -106,4 +110,8 @@ wss.on("connection", (socket) => {
       }
     }
   });
+});
+
+server.listen(PORT, () => {
+  console.log(`✅ WebSocket Server running on port ${PORT}`);
 });
